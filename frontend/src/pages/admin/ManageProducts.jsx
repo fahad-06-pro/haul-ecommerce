@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import API from '../../api/axios'
 import Navbar from '../../components/Navbar'
 import Footer from '../../components/Footer'
@@ -16,10 +16,31 @@ const ManageProducts = () => {
     category: '', stock: '', featured: false, tags: '',
   })
   const [images, setImages] = useState([])
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [selectedCategoryName, setSelectedCategoryName] = useState('Select Category')
+  const dropdownRef = useRef(null)
 
   useEffect(() => {
     fetchData()
   }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Sync category name when editing
+  useEffect(() => {
+    if (editProduct && categories.length > 0) {
+      const cat = categories.find(c => c._id === form.category)
+      if (cat) setSelectedCategoryName(cat.name)
+    }
+  }, [editProduct, categories])
 
   const fetchData = async () => {
     try {
@@ -37,30 +58,32 @@ const ManageProducts = () => {
   }
 
   const handleSubmit = async (e) => {
-  e.preventDefault()
-  setMessage('')
-  const formData = new FormData()
-  Object.keys(form).forEach((key) => formData.append(key, form[key]))
-  images.forEach((img) => formData.append('images', img))
+    e.preventDefault()
+    setMessage('')
+    const formData = new FormData()
+    Object.keys(form).forEach((key) => formData.append(key, form[key]))
+    images.forEach((img) => formData.append('images', img))
 
-  try {
-    if (editProduct) {
-      await API.put(`/products/${editProduct._id}`, formData)
-      setMessage('✅ Product updated successfully!')
-    } else {
-      await API.post('/products', formData)
-      setMessage('✅ Product created successfully!')
+    try {
+      if (editProduct) {
+        await API.put(`/products/${editProduct._id}`, formData)
+        setMessage('✅ Product updated successfully!')
+      } else {
+        await API.post('/products', formData)
+        setMessage('✅ Product created successfully!')
+      }
+      setShowForm(false)
+      setEditProduct(null)
+      setForm({ name: '', description: '', price: '', discountPrice: '', category: '', stock: '', featured: false, tags: '' })
+      setSelectedCategoryName('Select Category')
+      setImages([])
+      fetchData()
+    } catch (error) {
+      setMessage(`❌ ${error.response?.data?.message || error.response?.data?.error || 'Something went wrong!'}`)
+      setShowForm(true)
     }
-    setShowForm(false)
-    setEditProduct(null)
-    setForm({ name: '', description: '', price: '', discountPrice: '', category: '', stock: '', featured: false, tags: '' })
-    setImages([])
-    fetchData()
-  } catch (error) {
-  setMessage(`❌ ${error.response?.data?.message || error.response?.data?.error || 'Something went wrong — check image format!'}`)
-  setShowForm(true)
-}
-}
+  }
+
   const handleEdit = (product) => {
     setEditProduct(product)
     setForm({
@@ -73,6 +96,7 @@ const ManageProducts = () => {
       featured: product.featured,
       tags: product.tags?.join(', ') || '',
     })
+    setSelectedCategoryName(product.category?.name || 'Select Category')
     setShowForm(true)
   }
 
@@ -86,6 +110,12 @@ const ManageProducts = () => {
     }
   }
 
+  const handleCategorySelect = (catId, catName) => {
+    setForm({ ...form, category: catId })
+    setSelectedCategoryName(catName)
+    setDropdownOpen(false)
+  }
+
   if (loading) return <Loader />
 
   return (
@@ -95,7 +125,11 @@ const ManageProducts = () => {
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-2xl font-bold">Manage Products</h1>
           <button
-            onClick={() => { setShowForm(!showForm); setEditProduct(null) }}
+            onClick={() => {
+              setShowForm(!showForm)
+              setEditProduct(null)
+              setSelectedCategoryName('Select Category')
+            }}
             className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm transition"
           >
             {showForm ? 'Cancel' : '+ Add Product'}
@@ -104,52 +138,200 @@ const ManageProducts = () => {
 
         {/* Form */}
         {showForm && (
-          <form onSubmit={handleSubmit} className="bg-gray-900 p-6 rounded-xl mb-8">
+          <form onSubmit={handleSubmit} className="bg-gray-900 p-6 rounded-xl mb-8 border border-gray-800">
             <h2 className="text-lg font-semibold mb-4">{editProduct ? 'Edit Product' : 'Add New Product'}</h2>
             {message && <p className="text-green-400 text-sm mb-3">{message}</p>}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <input type="text" placeholder="Product Name" value={form.name} required
+
+              {/* Product Name */}
+              <input
+                type="text"
+                placeholder="Product Name"
+                value={form.name}
+                required
                 className="bg-gray-800 text-white px-4 py-3 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                onChange={(e) => setForm({ ...form, name: e.target.value })} />
-              <select value={form.category} required
-                className="bg-gray-800 text-white px-4 py-3 rounded-lg outline-none text-sm"
-                onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                <option value="">Select Category</option>
-                {categories.map((cat) => <option key={cat._id} value={cat._id}>{cat.name}</option>)}
-              </select>
-              <input type="number" placeholder="Price" value={form.price} required
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+
+              {/* VVIP Category Dropdown */}
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setDropdownOpen(!dropdownOpen)}
+                  className="w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm transition-all duration-200"
+                  style={{
+                    background: dropdownOpen ? 'linear-gradient(135deg, #052e16, #14532d)' : '#1f2937',
+                    border: dropdownOpen ? '1px solid #22c55e' : '1px solid #374151',
+                    color: selectedCategoryName === 'Select Category' ? '#9ca3af' : '#ffffff',
+                    boxShadow: dropdownOpen ? '0 0 16px rgba(34,197,94,0.25)' : 'none',
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    {selectedCategoryName !== 'Select Category' && (
+                      <span
+                        className="w-2 h-2 rounded-full bg-green-400"
+                      />
+                    )}
+                    <span className="font-medium">{selectedCategoryName}</span>
+                  </div>
+                  <span
+                    className="text-green-400 text-xs transition-transform duration-300"
+                    style={{ transform: dropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}
+                  >
+                    ▼
+                  </span>
+                </button>
+
+                {/* Dropdown Menu */}
+                {dropdownOpen && (
+                  <div
+                    className="absolute top-full left-0 w-full mt-2 rounded-xl overflow-hidden z-50"
+                    style={{
+                      background: '#0f172a',
+                      border: '1px solid #22c55e',
+                      boxShadow: '0 12px 40px rgba(34,197,94,0.2)',
+                    }}
+                  >
+                    {/* Header */}
+                    <div
+                      className="px-4 py-2 text-xs font-bold uppercase tracking-widest"
+                      style={{
+                        color: '#22c55e',
+                        background: '#0a1628',
+                        borderBottom: '1px solid #1e293b',
+                        letterSpacing: '0.15em',
+                      }}
+                    >
+                      Select Category
+                    </div>
+
+                    {/* Options */}
+                    {categories.map((cat, index) => (
+                      <button
+                        key={cat._id}
+                        type="button"
+                        onClick={() => handleCategorySelect(cat._id, cat.name)}
+                        className="w-full text-left px-4 py-3 text-sm font-medium transition-all duration-150 flex items-center justify-between group"
+                        style={{
+                          background: selectedCategoryName === cat.name
+                            ? 'linear-gradient(135deg, #052e16, #14532d)'
+                            : 'transparent',
+                          color: selectedCategoryName === cat.name ? '#22c55e' : '#d1d5db',
+                          borderBottom: index < categories.length - 1 ? '1px solid #1e293b' : 'none',
+                        }}
+                        onMouseEnter={(e) => {
+                          if (selectedCategoryName !== cat.name) {
+                            e.currentTarget.style.background = '#1e293b'
+                            e.currentTarget.style.color = '#ffffff'
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (selectedCategoryName !== cat.name) {
+                            e.currentTarget.style.background = 'transparent'
+                            e.currentTarget.style.color = '#d1d5db'
+                          }
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span
+                            className="w-2 h-2 rounded-full transition-all duration-200"
+                            style={{
+                              background: selectedCategoryName === cat.name ? '#22c55e' : '#374151',
+                              boxShadow: selectedCategoryName === cat.name ? '0 0 6px #22c55e' : 'none',
+                            }}
+                          />
+                          {cat.name}
+                        </div>
+                        {selectedCategoryName === cat.name && (
+                          <span className="text-green-400 text-xs">✓</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Price */}
+              <input
+                type="number"
+                placeholder="Price"
+                value={form.price}
+                required
                 className="bg-gray-800 text-white px-4 py-3 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                onChange={(e) => setForm({ ...form, price: e.target.value })} />
-              <input type="number" placeholder="Discount Price (optional)" value={form.discountPrice}
+                onChange={(e) => setForm({ ...form, price: e.target.value })}
+              />
+
+              {/* Discount Price */}
+              <input
+                type="number"
+                placeholder="Discount Price (optional)"
+                value={form.discountPrice}
                 className="bg-gray-800 text-white px-4 py-3 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                onChange={(e) => setForm({ ...form, discountPrice: e.target.value })} />
-              <input type="number" placeholder="Stock" value={form.stock} required
+                onChange={(e) => setForm({ ...form, discountPrice: e.target.value })}
+              />
+
+              {/* Stock */}
+              <input
+                type="number"
+                placeholder="Stock"
+                value={form.stock}
+                required
                 className="bg-gray-800 text-white px-4 py-3 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                onChange={(e) => setForm({ ...form, stock: e.target.value })} />
-              <input type="text" placeholder="Tags (comma separated)" value={form.tags}
+                onChange={(e) => setForm({ ...form, stock: e.target.value })}
+              />
+
+              {/* Tags */}
+              <input
+                type="text"
+                placeholder="Tags (comma separated)"
+                value={form.tags}
                 className="bg-gray-800 text-white px-4 py-3 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                onChange={(e) => setForm({ ...form, tags: e.target.value })} />
-              <textarea placeholder="Description" value={form.description} required rows={3}
+                onChange={(e) => setForm({ ...form, tags: e.target.value })}
+              />
+
+              {/* Description */}
+              <textarea
+                placeholder="Description"
+                value={form.description}
+                required
+                rows={3}
                 className="bg-gray-800 text-white px-4 py-3 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm resize-none sm:col-span-2"
-                onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+              />
+
+              {/* Featured */}
               <div className="flex items-center gap-3">
-                <input type="checkbox" checked={form.featured} id="featured"
+                <input
+                  type="checkbox"
+                  checked={form.featured}
+                  id="featured"
                   className="accent-green-500 w-4 h-4"
-                  onChange={(e) => setForm({ ...form, featured: e.target.checked })} />
+                  onChange={(e) => setForm({ ...form, featured: e.target.checked })}
+                />
                 <label htmlFor="featured" className="text-sm text-gray-400">Featured Product</label>
               </div>
-              <input type="file" multiple accept="image/*"
+
+              {/* Images */}
+              <input
+                type="file"
+                multiple
+                accept="image/*"
                 className="bg-gray-800 text-white px-4 py-3 rounded-lg text-sm"
-                onChange={(e) => setImages(Array.from(e.target.files))} />
+                onChange={(e) => setImages(Array.from(e.target.files))}
+              />
             </div>
-            <button type="submit" className="mt-4 bg-green-500 hover:bg-green-600 text-white py-3 px-6 rounded-lg font-semibold transition text-sm">
+
+            <button
+              type="submit"
+              className="mt-4 bg-green-500 hover:bg-green-600 text-white py-3 px-6 rounded-lg font-semibold transition text-sm"
+            >
               {editProduct ? 'Update Product' : 'Create Product'}
             </button>
           </form>
         )}
 
         {/* Products Table */}
-        <div className="bg-gray-900 rounded-xl overflow-x-auto">
+        <div className="bg-gray-900 rounded-xl overflow-x-auto border border-gray-800">
           <table className="w-full text-sm">
             <thead className="bg-gray-800">
               <tr>
@@ -163,7 +345,7 @@ const ManageProducts = () => {
             </thead>
             <tbody>
               {products.map((product) => (
-                <tr key={product._id} className="border-t border-gray-800">
+                <tr key={product._id} className="border-t border-gray-800 hover:bg-gray-800 transition">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <img
@@ -174,14 +356,25 @@ const ManageProducts = () => {
                       <span className="text-white">{product.name}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-gray-400">{product.category?.name}</td>
-                  <td className="px-4 py-3 text-green-400">${product.discountPrice || product.price}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className="px-2 py-1 rounded-full text-xs font-medium"
+                      style={{
+                        background: 'rgba(34,197,94,0.1)',
+                        border: '1px solid rgba(34,197,94,0.3)',
+                        color: '#22c55e',
+                      }}
+                    >
+                      {product.category?.name}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-green-400 font-semibold">${product.discountPrice || product.price}</td>
                   <td className="px-4 py-3 text-white">{product.stock}</td>
                   <td className="px-4 py-3">{product.featured ? '✅' : '—'}</td>
                   <td className="px-4 py-3">
                     <div className="flex gap-3">
-                      <button onClick={() => handleEdit(product)} className="text-blue-400 hover:text-blue-500 transition">Edit</button>
-                      <button onClick={() => handleDelete(product._id)} className="text-red-400 hover:text-red-500 transition">Delete</button>
+                      <button onClick={() => handleEdit(product)} className="text-blue-400 hover:text-blue-300 transition font-medium">Edit</button>
+                      <button onClick={() => handleDelete(product._id)} className="text-red-400 hover:text-red-300 transition font-medium">Delete</button>
                     </div>
                   </td>
                 </tr>
